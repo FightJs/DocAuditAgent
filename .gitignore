@@ -1,0 +1,27 @@
+# macOS and editor artifacts
+.DS_Store
+.idea/
+.vscode/
+
+# Local Codex/Claude configuration
+.codex/
+.claude/settings.local.json
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node/frontend dependencies and build output
+node_modules/
+dist/
+build/
+.next/
