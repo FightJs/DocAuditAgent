@@ -5,6 +5,7 @@
 
 # Local Codex/Claude configuration
 .codex/
+.superpowers/
 .claude/settings.local.json
 
 # Environment files and secrets
@@ -22,6 +23,7 @@ venv/
 
 # Node/frontend dependencies and build output
 node_modules/
+*.tsbuildinfo
 dist/
 build/
 .next/

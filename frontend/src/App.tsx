@@ -1,0 +1,80 @@
+import { FormEvent, useEffect, useState } from "react";
+import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, CheckCircle2, FilePlus2, Search, Upload } from "lucide-react";
+import { getCase, getFinding, listCases, listFindings, submitDocument } from "./api/cases";
+import { approverActor } from "./api/client";
+import { acceptAssignment, editFinding, getAssignment, listAssignments, submitApproval, type Assignment } from "./api/review";
+import { Breadcrumbs } from "./components/Breadcrumbs";
+import type { AuditCase, Finding, FindingDetail } from "./types/domain";
+import "./styles.css";
+
+const statusLabel: Record<string, string> = { created: "待提交", uploading: "处理中", changes_requested: "需补件", human_reviewing: "人工复核", approved: "已同意", rejected: "已驳回", delivered: "已交付" };
+const errorText = (error: unknown) => error instanceof Error ? error.message : "请求失败，请稍后重试";
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return <main className="app"><header><Link className="brand" to="/cases"><span>▣</span>DocAuditAgent</Link><span className="role">本地真实后端联调</span></header>{children}</main>;
+}
+function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "danger"; children: React.ReactNode }) { return <div className={`notice ${tone}`}><AlertTriangle size={17}/>{children}</div>; }
+function Badge({ status }: { status: string }) { return <span className={`badge ${status}`}>{statusLabel[status] ?? "待确认"}</span>; }
+function PageHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) { return <div className="page-header"><div><h1>{title}</h1><p>{description}</p></div>{action}</div>; }
+function Panel({ title, children }: { title: string; children: React.ReactNode }) { return <section className="panel"><h2>{title}</h2>{children}</section>; }
+
+function CaseList() {
+  const [items, setItems] = useState<AuditCase[]>([]); const [status, setStatus] = useState(""); const [query, setQuery] = useState(""); const [error, setError] = useState("");
+  useEffect(() => { listCases(status || undefined).then(setItems).catch((cause) => setError(errorText(cause))); }, [status]);
+  const visible = items.filter((item) => item.case_reference.toLowerCase().includes(query.toLowerCase()));
+  return <Shell><PageHeader title="审核案件" description="仅展示真实后端返回且当前主体有权访问的案件。" action={<Link className="button" to="/cases/new"><FilePlus2 size={17}/>新建审核案件</Link>}/><div className="filters"><label>案件状态<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">所有状态</option><option value="changes_requested">需补件</option><option value="human_reviewing">人工复核</option><option value="uploading">处理中</option></select></label><label className="search"><Search size={17}/><input placeholder="搜索案件编号" value={query} onChange={(event) => setQuery(event.target.value)}/></label></div>{error && <Notice tone="danger">{error}</Notice>}<Panel title="案件列表"><div className="case-table"><div className="table-head"><span>案件</span><span>当前状态</span><span>文档版本</span><span>最近更新</span><span>操作</span></div>{visible.map((item) => <div className="case-row" key={item.case_id}><div><strong>{item.case_reference}</strong><small>{item.contract_type ?? "-"} · {item.audit_scope_id}</small></div><Badge status={item.status}/><span>{item.current_document_version ? `V${item.current_document_version.version_number}` : "-"}</span><span>{item.updated_at?.slice(0, 10) ?? "-"}</span><Link to={`/cases/${item.case_id}`}>查看详情</Link></div>)}</div></Panel></Shell>;
+}
+
+function NewCase() {
+  const navigate = useNavigate(); const [reference, setReference] = useState(""); const [files, setFiles] = useState<File[]>([]); const [error, setError] = useState(""); const [submitting, setSubmitting] = useState(false);
+  const submit = async (event: FormEvent) => { event.preventDefault(); if (!reference.trim()) return setError("请填写案件参考号"); if (!files.length) return setError("请选择合同正文文件"); setSubmitting(true); setError(""); try { const result = await submitDocument({ case_reference: reference, audit_scope_id: "scope_nda_v1", contract_type: "nda", business_context: { purpose: "合作洽谈" } }, files); navigate(`/cases/${result.case_id}`); } catch (cause) { setError(errorText(cause)); } finally { setSubmitting(false); } };
+  return <Shell><Breadcrumbs items={[{ label: "案件列表", to: "/cases" }, { label: "新建审核案件" }]}/><PageHeader title="新建审核案件与上传材料" description="创建、上传和提交均调用真实后端；上传成功不代表审核通过。"/><form className="two-column" onSubmit={submit}><Panel title="案件信息"><label>案件参考号<input aria-label="案件参考号" value={reference} onChange={(event) => setReference(event.target.value)} placeholder="例如 nda-2026-099"/></label><label>合同类型<select defaultValue="nda"><option value="nda">NDA</option></select></label><label>审核范围<select defaultValue="scope_nda_v1"><option value="scope_nda_v1">scope_nda_v1</option></select></label></Panel><Panel title="材料上传"><div className="dropzone"><Upload size={28}/><strong>选择合同正文与支持附件</strong><span>首个文件作为合同正文，其余文件作为支持附件。</span><input type="file" multiple aria-label="选择材料" onChange={(event) => setFiles(Array.from(event.target.files ?? []))}/></div></Panel><div className="actions"><Link className="button secondary" to="/cases">取消</Link><button className="button" disabled={submitting} type="submit">{submitting ? "正在提交…" : "提交材料"}</button></div></form>{error && <Notice tone="danger">{error}</Notice>}</Shell>;
+}
+
+function Detail() {
+  const { caseId = "" } = useParams(); const [item, setItem] = useState<AuditCase>(); const [error, setError] = useState("");
+  useEffect(() => { getCase(caseId).then(setItem).catch((cause) => setError(errorText(cause))); }, [caseId]);
+  if (error) return <Shell><Breadcrumbs items={[{ label: "案件列表", to: "/cases" }, { label: caseId }]}/><Notice tone="danger">{error}</Notice><Link to="/cases">返回案件列表</Link></Shell>;
+  if (!item) return <Shell><Breadcrumbs items={[{ label: "案件列表", to: "/cases" }, { label: caseId }]}/><p>正在读取案件…</p></Shell>;
+  const version = item.current_document_version; const run = item.current_audit_run;
+  return <Shell><Breadcrumbs items={[{ label: "案件列表", to: "/cases" }, { label: item.case_reference }]}/><PageHeader title="案件详情与时间线" description="当前版本、审核运行和责任由真实后端上下文决定。" action={<Badge status={item.status}/>}/><div className="context">文档版本 {version ? `V${version.version_number} · ${version.document_version_id}` : "未生成"}　审核运行 {run?.audit_run_id ?? "未生成"}　基线 {run?.baseline_version_id ?? "未生成"}</div><div className="two-column"><Panel title="材料与版本"><p><strong>{version ? `当前版本 V${version.version_number}` : "尚未提交版本"}</strong> · {version?.status ?? "created"}</p></Panel><Panel title="人工待办"><p>{item.assignment_summary ? `${item.assignment_summary.queue_code} · ${item.assignment_summary.assignment_status}` : "当前无待办"}</p></Panel></div><div className="actions">{run && <Link className="button secondary" to={`/cases/${caseId}/evidence`}>查看风险与证据</Link>}<Link className="button" to="/review">进入人工审核</Link></div></Shell>;
+}
+
+function Supplement() { return <Shell><Breadcrumbs items={[{ label: "案件列表", to: "/cases" }, { label: "补件与重提材料" }]}/><PageHeader title="补件与重提材料" description="补件将基于当前文档版本创建新的上传批次。"/><Notice tone="info">请在案件详情中使用版本化文档上传流程提交新版本。</Notice></Shell>; }
+
+function Evidence() {
+  const { caseId = "" } = useParams(); const [findings, setFindings] = useState<Finding[]>([]); const [selected, setSelected] = useState<FindingDetail>(); const [error, setError] = useState("");
+  useEffect(() => { getCase(caseId).then(async (item) => { if (!item.current_audit_run) throw new Error("当前案件尚未生成审核运行"); const next = await listFindings(caseId, item.current_audit_run.audit_run_id); setFindings(next); if (next[0]) setSelected(await getFinding(caseId, item.current_audit_run.audit_run_id, next[0].finding_id)); }).catch((cause) => setError(errorText(cause))); }, [caseId]);
+  return <Shell><Breadcrumbs items={[{ label: "案件列表", to: "/cases" }, { label: caseId, to: `/cases/${caseId}` }, { label: "风险与证据" }]}/><PageHeader title="风险结果与原文证据" description="风险项与证据均来自当前审核运行的真实响应。"/>{error && <Notice tone="danger">{error}</Notice>}<div className="evidence-grid"><Panel title="风险项">{findings.map((finding) => <button className={`finding ${selected?.finding_id === finding.finding_id ? "selected" : ""}`} key={finding.finding_id} onClick={() => { getCase(caseId).then((item) => item.current_audit_run && getFinding(caseId, item.current_audit_run.audit_run_id, finding.finding_id).then(setSelected)); }}>{finding.title}<small>{finding.severity} · {finding.status}</small></button>)}</Panel><Panel title="原文与依据">{selected?.source_locator.quote ? <><blockquote>{selected.source_locator.quote}</blockquote><p>{selected.summary}</p></> : <p>暂无可展示的原文定位。</p>}</Panel></div><div className="actions"><Link className="button secondary" to={`/cases/${caseId}`}><ArrowLeft size={16}/>返回案件详情</Link></div></Shell>;
+}
+
+function Review() {
+  const navigate = useNavigate(); const [items, setItems] = useState<Assignment[]>([]); const [error, setError] = useState("");
+  useEffect(() => { listAssignments().then(setItems).catch((cause) => setError(errorText(cause))); }, []);
+  const accept = async (item: Assignment) => { try { const accepted = await acceptAssignment(item.case_id, item.assignment_id, item.expected_revision); navigate(`/cases/${accepted.case_id}/assignments/${accepted.assignment_id}`); } catch (cause) { setError(errorText(cause)); } };
+  return <Shell><Breadcrumbs items={[{ label: "审核队列" }]}/><PageHeader title="人工审核工作台" description="待办、责任与 revision 由后端裁决。"/>{error && <Notice tone="danger">{error}</Notice>}<Panel title="待办队列">{items.length ? items.map((item) => <div className="case-row" key={item.assignment_id}><span>{item.case_id}</span><span>{item.highest_severity} · {item.risk_count} 项</span><button className="button secondary" onClick={() => accept(item)}>接收待办</button></div>) : <p>当前无可接收待办。</p>}</Panel></Shell>;
+}
+
+function AssignmentDetail() {
+  const { caseId = "", assignmentId = "" } = useParams(); const [assignment, setAssignment] = useState<Assignment>(); const [findings, setFindings] = useState<Finding[]>([]); const [error, setError] = useState("");
+  useEffect(() => { getAssignment(caseId, assignmentId).then((value) => { setAssignment(value); return listFindings(value.case_id, value.audit_run_id, approverActor); }).then(setFindings).catch((cause) => setError(errorText(cause))); }, [caseId, assignmentId]);
+  const crumbs = [{ label: "审核队列", to: "/review" }, { label: caseId, to: `/cases/${caseId}` }, { label: "待办详情" }];
+  if (error) return <Shell><Breadcrumbs items={crumbs}/><Notice tone="danger">{error}</Notice><Link to="/review">返回审核队列</Link></Shell>;
+  if (!assignment) return <Shell><Breadcrumbs items={crumbs}/><p>正在读取待办…</p></Shell>;
+  return <Shell><Breadcrumbs items={crumbs}/><PageHeader title="待办详情" description="待办上下文、责任和 revision 由真实后端响应决定。"/><div className="two-column"><Panel title="当前待办"><p>{assignment.document_version_id} · {assignment.audit_run_id} · {assignment.baseline_version_id}</p><p>{assignment.highest_severity} · {assignment.risk_count} 项风险</p></Panel><Panel title="风险项"><p>{findings.length ? findings.map((finding) => finding.title).join("、") : "当前运行没有可展示的风险项。"}</p></Panel></div><div className="actions"><Link className="button secondary" to="/review"><ArrowLeft size={16}/>返回审核队列</Link><Link className="button" to={`/cases/${assignment.case_id}/assignments/${assignment.assignment_id}/confirm`}>进入决定确认</Link></div></Shell>;
+}
+
+function Confirm() {
+  const { caseId = "", assignmentId = "" } = useParams(); const [assignment, setAssignment] = useState<Assignment>(); const [finding, setFinding] = useState<FindingDetail>(); const [reason, setReason] = useState(""); const [message, setMessage] = useState(""); const [loadError, setLoadError] = useState(""); const [submitting, setSubmitting] = useState(false); const [revision, setRevision] = useState<number>(); const [findingReviewed, setFindingReviewed] = useState(false);
+  useEffect(() => { getAssignment(caseId, assignmentId).then(setAssignment).catch((cause) => setLoadError(errorText(cause))); }, [caseId, assignmentId]);
+  useEffect(() => { if (!assignment) return; listFindings(assignment.case_id, assignment.audit_run_id, approverActor).then(async (items) => { if (!items[0]) throw new Error("当前运行没有可审批的风险项"); setFinding(await getFinding(assignment.case_id, assignment.audit_run_id, items[0].finding_id, approverActor)); }).catch((cause) => setLoadError(errorText(cause))); }, [assignment]);
+  const crumbs = [{ label: "审核队列", to: "/review" }, { label: caseId, to: `/cases/${caseId}` }, { label: "待办详情", to: `/cases/${caseId}/assignments/${assignmentId}` }, { label: "决定确认" }];
+  if (loadError) return <Shell><Breadcrumbs items={crumbs}/><Notice tone="danger">{loadError}</Notice><Link to={`/cases/${caseId}/assignments/${assignmentId}`}>返回待办详情</Link></Shell>;
+  if (!assignment) return <Shell><Breadcrumbs items={crumbs}/><p>正在读取待办…</p></Shell>;
+  const reviewFinding = async () => { if (!reason.trim()) return setMessage("请先填写决定理由"); if (!finding) return setMessage("正在读取风险项"); setSubmitting(true); try { const result = await editFinding({ caseId: assignment.case_id, assignmentId: assignment.assignment_id, documentVersionId: assignment.document_version_id, auditRunId: assignment.audit_run_id, baselineVersionId: assignment.baseline_version_id, expectedRevision: revision ?? assignment.expected_revision, findingId: finding.finding_id, reason }); setRevision(result.expected_revision); setFindingReviewed(true); setMessage("风险项已处置，请确认并提交同意决定。"); } catch (cause) { setMessage(errorText(cause)); } finally { setSubmitting(false); } };
+  const submit = async () => { if (!reason.trim()) return setMessage("请填写决定理由"); if (!findingReviewed) return setMessage("请先处置当前必处置风险项"); if (!finding?.source_locator.locator_id) return setMessage("当前风险项未提供可审批的原文定位"); setSubmitting(true); try { const result = await submitApproval({ caseId: assignment.case_id, assignmentId: assignment.assignment_id, documentVersionId: assignment.document_version_id, auditRunId: assignment.audit_run_id, baselineVersionId: assignment.baseline_version_id, expectedRevision: revision ?? assignment.expected_revision, locatorId: finding.source_locator.locator_id, reason }); setMessage(`决定已记录：${statusLabel[result.case_status] ?? result.case_status}`); } catch (cause) { setMessage(errorText(cause)); } finally { setSubmitting(false); } };
+  return <Shell><Breadcrumbs items={crumbs}/><PageHeader title="人工决定确认" description="审批前必须先处置当前必处置风险项；所有载荷使用当前版本、运行、基线与 revision。"/><div className="two-column"><Panel title="决定确认"><p>{assignment.document_version_id} · {assignment.audit_run_id} · {assignment.baseline_version_id}</p><label>决定理由<textarea aria-label="决定理由" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明当前决定的依据"/></label></Panel><Panel title="原文证据"><p>{finding?.source_locator.quote ?? "正在读取证据…"}</p></Panel></div><div className="actions"><Link className="button secondary" to={`/cases/${caseId}/assignments/${assignmentId}`}><ArrowLeft size={16}/>返回待办详情</Link><button className="button secondary" disabled={submitting || findingReviewed} onClick={reviewFinding}>处置当前风险项</button><button className="button" disabled={submitting || !findingReviewed} onClick={submit}><CheckCircle2 size={16}/>确认并提交同意</button></div>{message && <Notice tone={message.startsWith("决定已记录") || message.startsWith("风险项") ? "info" : "danger"}>{message}</Notice>}</Shell>;
+}
+
+export function App() { return <BrowserRouter><Routes><Route path="/" element={<CaseList/>}/><Route path="/cases" element={<CaseList/>}/><Route path="/cases/new" element={<NewCase/>}/><Route path="/cases/:caseId" element={<Detail/>}/><Route path="/cases/:caseId/materials" element={<Supplement/>}/><Route path="/cases/:caseId/evidence" element={<Evidence/>}/><Route path="/review" element={<Review/>}/><Route path="/cases/:caseId/assignments/:assignmentId" element={<AssignmentDetail/>}/><Route path="/cases/:caseId/assignments/:assignmentId/confirm" element={<Confirm/>}/></Routes></BrowserRouter>; }

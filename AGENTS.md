@@ -31,3 +31,14 @@
 2. 确认任务是否属于复杂任务；若是，先建立或更新 Plan。
 3. 确认前后端边界、API 契约与环境变量需求。
 4. 实施后运行与变更风险相匹配的验证，并把结果记录到对应文档。
+
+## 5. 前端本地启动规范
+
+- 前端项目根目录固定为 `/Users/xiaochao/Desktop/DocAuditAgent/frontend/`。
+- 启动前必须确认该目录存在 `package.json`，并依据实际锁文件选择包管理器；不得在项目根目录安装前端依赖。
+- 使用 npm 时，在 `frontend/` 目录执行：
+  - 首次安装且存在 `package-lock.json`：`npm ci`
+  - 首次安装但不存在 `package-lock.json`：`npm install`
+  - 启动开发服务：`npm run dev`
+- 具体启动脚本以 `frontend/package.json` 的 `scripts` 为准；不得猜测或自行新增启动脚本。
+- 当前前端完整代码位于 `/Users/xiaochao/Desktop/DocAuditAgent/frontend/`，包含 `package.json` 与 `package-lock.json`。本地启动命令为：先在该目录运行 `npm ci`，再运行 `npm run dev`；需要指定本机地址或端口时使用 `npm run dev -- --host 127.0.0.1 --port 5173`。
