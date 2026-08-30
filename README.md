@@ -13,6 +13,27 @@ DocAuditAgent 是一个可审计的文档审核工作台 MVP。业务提交者�
 - 对变更请求使用幂等键和 `expected_revision`，避免重复提交及过期写入。
 - 前端通过真实 FastAPI API 工作，不依赖浏览器运行时 Mock 数据。
 
+## 开发模式：SDD（Spec-Driven Development）
+
+本项目采用 SDD（规范驱动开发）模式：先通过产品、架构、数据模型和 API 规范明确边界与契约，再按计划实现前后端，最后以自动化测试和联调记录验证实现是否符合规范。规范文档是开发过程中的约束和协作接口，不是实现完成后的附属说明。
+
+当前仓库中的 SDD 证据包括：
+
+| SDD 阶段 | 项目产物 | 作用 |
+| --- | --- | --- |
+| 定义问题与产品范围 | `PRODUCT.md`、`docs/01_business_research/`、`docs/03_business_problem_modeling/` | 明确用户、审核目标、状态语义和产品原则 |
+| 设计系统与数据边界 | `docs/06_system_architecture/`、`docs/07_data_model/` | 明确前后端职责、版本/运行/基线关系和 HITL 工作流 |
+| 收口接口契约 | `docs/08_api_spec/api_spec-v1.0.md` | 固化请求、响应、权限、幂等、并发和错误语义 |
+| 计划驱动实现 | `docs/00_setup/plans/`、`docs/09_frontend_implementation_plan/`、`docs/10_backend_implementation_plan/` | 将规范拆解为可执行的前端、后端和集成任务 |
+| 验证与反馈闭环 | `backend/tests/`、`frontend/src/**/*.test.*`、`docs/11_integration_testing/` | 用测试和真实 API 联调记录验证并回写实现结果 |
+
+SDD 在本项目中的关键实践：
+
+- 前后端通过已定义的 `/api/v1` 契约协作，避免共享内部实现或状态。
+- `approved`、版本上下文、人工决定和权限等高责任语义由规范先行定义，再由服务端实现和测试保护。
+- 计划、实施记录和联调结果保存在 `docs/` 阶段目录，便于追踪决策、风险和下一阶段交付物。
+- 发现契约问题时先更新规范或计划，再同步实现和测试，保持文档、代码、验证结果一致。
+
 ## 架构
 
 ```text
